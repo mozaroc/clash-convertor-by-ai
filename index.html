@@ -14,7 +14,7 @@
     label { display: block; font-size: 14px; color: #9aa1b2; margin-bottom: 8px; }
     select, textarea, input[type="text"] { width: 100%; background: #0f1115; border: 1px solid #2a2e3f; border-radius: 10px; color: #e7e7e7; padding: 10px 12px; }
     textarea { min-height: 120px; line-height: 1.4; resize: vertical; }
-    .row { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .actions { display: flex; gap: 12px; flex-wrap: wrap; }
     button { background: #3b82f6; color: white; border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer; font-weight: 600; }
     button.secondary { background: #2b2f42; }
@@ -23,6 +23,8 @@
     .footer { font-size: 12px; color: #79809b; margin-top: 24px; }
     .hidden { display: none; }
     .inline { display: inline-flex; gap: 8px; align-items: center; }
+    code { background:#10131c; padding:2px 5px; border-radius:6px; }
+    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -33,23 +35,45 @@
     <div class="card">
       <label for="templateSelect">Шаблон конфига</label>
       <div class="row">
-        <input id="templateFiles" type="file" accept=".yaml,.yml" multiple class="hidden" />
         <select id="templateSelect"></select>
         <div class="inline">
           <button id="reloadTemplates" class="secondary" title="Перечитать templates/index.json">Обновить список</button>
-          <button id="pickLocalTemplates" class="secondary hidden" title="Загрузить .yaml шаблоны с диска">Выбрать файлы шаблонов</button>
+          <a id="openTemplates" href="./templates/" target="_blank" class="hint">Открыть папку templates/</a>
         </div>
       </div>
+      <input id="templateFiles" type="file" accept=".yaml,.yml" multiple class="hidden" />
+      <button id="pickLocalTemplates" class="secondary hidden" title="Загрузить .yaml шаблоны с диска">Выбрать файлы шаблонов</button>
+      <div class="hint">Шаблоны лежат в папке <b>templates/</b> рядом с <b>index.html</b>. Список читается из <b>templates/index.json</b>. При открытии по <code>file://</code> появится кнопка выбора локальных файлов.</div>
+    </div>
 
     <div class="card">
-      <label for="yamlInput">VLESS / VMESS / SS / TROJAN / HY2 ссылка или несколько ссылок (по одной в строке)</label>
+      <label for="yamlInput">VLESS / VMESS / SS / TROJAN / HY2 ссылка или несколько (по одной в строке)</label>
       <textarea id="yamlInput" placeholder="vless://..., vmess://..., ss://..., trojan://..., hy2://..."></textarea>
       <div class="actions" style="margin-top:10px;">
-        <button id="convertBtn">Конвертировать</button>
+        <button id="convertBtn">Конвертировать в proxies</button>
         <button id="copyBtn" class="secondary">Копировать</button>
         <button id="downloadBtn" class="secondary hidden">Скачать YAML</button>
       </div>
-      <div class="hint">Скрипт возьмёт ссылку(и), сконвертирует их в YAML для Mihomo и добавит/заменит раздел <code>proxies:</code> в выбранном шаблоне.</div>
+      <div class="hint">Скрипт конвертирует ссылки в YAML-блок <code>proxies:</code> и вставит/заменит его в выбранном шаблоне.</div>
+    </div>
+
+    <div class="card">
+      <label for="subsInput">Ссылки подписок (по одной в строке) — добавить как <code>proxy-providers</code></label>
+      <textarea id="subsInput" placeholder="https://domain-a-sub.isgood.host/RfHTzrZCm2LM1Xe4"></textarea>
+      <div class="row">
+        <div>
+          <label for="subsInterval">Интервал обновления (сек)</label>
+          <input type="text" id="subsInterval" value="3600" />
+        </div>
+        <div>
+          <label for="subsHealth">URL health-check</label>
+          <input type="text" id="subsHealth" value="http://www.gstatic.com/generate_204" />
+        </div>
+      </div>
+      <div class="actions" style="margin-top:10px;">
+        <button id="addProvidersBtn">Добавить proxy-providers</button>
+      </div>
+      <div class="hint">Будет создана секция <code>proxy-providers:</code> с типом <code>http</code> и ссылками на подписки. Mihomo сам будет ходить по этим URL и обновлять список прокси.</div>
     </div>
 
     <div class="card">
@@ -57,6 +81,7 @@
       <textarea id="yamlOutput" readonly></textarea>
     </div>
 
+    <div class="footer">Нет WARP и переключателей — только dropdown шаблонов, proxies из ссылок и/или proxy-providers из подписок.</div>
   </main>
 
   <script src="./script.js"></script>
