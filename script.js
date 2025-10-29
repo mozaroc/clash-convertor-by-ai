@@ -1,96 +1,600 @@
-<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mihomo: конвертер ссылок → YAML + шаблоны</title>
-  <style>
-    :root { color-scheme: dark; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
-    header { padding: 24px; background: #11131a; border-bottom: 1px solid #232532; }
-    h1 { margin: 0; font-size: 20px; }
-    main { padding: 24px; max-width: 980px; margin: 0 auto; }
-    .card { background: #151823; border: 1px solid #232532; border-radius: 16px; padding: 16px; margin-bottom: 16px; }
-    label { display: block; font-size: 14px; color: #9aa1b2; margin-bottom: 8px; }
-    select, textarea, input[type="text"] { width: 100%; background: #0f1115; border: 1px solid #2a2e3f; border-radius: 10px; color: #e7e7e7; padding: 10px 12px; }
-    textarea { min-height: 120px; line-height: 1.4; resize: vertical; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .actions { display: flex; gap: 12px; flex-wrap: wrap; }
-    button { background: #3b82f6; color: white; border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer; font-weight: 600; }
-    button.secondary { background: #2b2f42; }
-    button:disabled { opacity: .6; cursor: not-allowed; }
-    .hint { font-size: 12px; color: #9aa1b2; margin-top: 8px; }
-    .footer { font-size: 12px; color: #79809b; margin-top: 24px; }
-    .hidden { display: none; }
-    .inline { display: inline-flex; gap: 8px; align-items: center; }
-    code { background:#10131c; padding:2px 5px; border-radius:6px; }
-    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
-    a { color: #93c5fd; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Конвертер ссылок → YAML для Mihomo (с шаблонами)</h1>
-  </header>
-  <main>
-    <div class="card">
-      <label for="templateSelect">Шаблон конфига</label>
-      <div class="row">
-        <select id="templateSelect"></select>
-        <div class="inline">
-          <button id="reloadTemplates" class="secondary" title="Перечитать templates/index.json">Обновить список</button>
-          <a id="openTemplates" href="./templates/" target="_blank" class="hint">Открыть папку templates/</a>
-        </div>
-      </div>
-      <input id="templateFiles" type="file" accept=".yaml,.yml" multiple class="hidden" />
-      <button id="pickLocalTemplates" class="secondary hidden" title="Загрузить .yaml шаблоны с диска">Выбрать файлы шаблонов</button>
-      <div class="hint">Шаблоны лежат в папке <b>templates/</b> рядом с <b>index.html</b>. Список читается из <b>templates/index.json</b>. При открытии по <code>file://</code> появится кнопка выбора локальных файлов.</div>
-    </div>
+/* App logic: templates dropdown (+file:// fallback), proxies from links, proxy-providers from subscriptions */
 
-    <div class="card">
-      <label for="yamlInput">VLESS / VMESS / SS / TROJAN / HY2 ссылка или несколько (по одной в строке)</label>
-      <textarea id="yamlInput" placeholder="vless://..., vmess://..., ss://..., trojan://..., hy2://..."></textarea>
-      <div class="actions" style="margin-top:10px;">
-        <button id="convertBtn">Конвертировать в proxies</button>
-        <button id="copyBtn" class="secondary">Копировать</button>
-        <button id="downloadBtn" class="secondary hidden">Скачать YAML</button>
-      </div>
-      <div class="hint">Скрипт конвертирует ссылки в YAML-блок <code>proxies:</code> и вставит/заменит его в выбранном шаблоне.</div>
-    </div>
+const $ = (sel) => document.querySelector(sel);
 
-    <div class="card">
-      <label for="subsInput">Ссылки подписок (по одной в строке) — добавить как <code>proxy-providers</code></label>
-      <textarea id="subsInput" placeholder="https://domain-a-sub.isgood.host/RfHTzrZCm2LM1Xe4"></textarea>
-      <div class="row">
-        <div>
-          <label for="subsInterval">Интервал обновления (сек)</label>
-          <input type="text" id="subsInterval" value="3600" />
-        </div>
-        <div>
-          <label for="subsHealth">URL health-check</label>
-          <input type="text" id="subsHealth" value="http://www.gstatic.com/generate_204" />
-        </div>
-      </div>
-      <div class="actions" style="margin-top:10px;">
-        <button id="addProvidersBtn">Добавить proxy-providers</button>
-        <button id="applyBothBtn" class="secondary">Применить оба (proxies + providers)</button>
-      </div>
-      <div class="hint">Будет создана секция <code>proxy-providers:</code> с типом <code>http</code> и ссылками на подписки. Mihomo сам будет ходить по этим URL и обновлять список прокси.</div>
-    </div>
+// ---------- Templates loading ----------
+async function loadTemplatesList() {
+  const select = $('#templateSelect');
+  select.innerHTML = '';
+  try {
+    const resp = await fetch('./templates/index.json', { cache: 'no-store' });
+    if (!resp.ok) throw new Error('templates/index.json not found');
+    const list = await resp.json();
+    if (!Array.isArray(list) || list.length === 0) throw new Error('Пустой список шаблонов');
+    list.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = item.file;
+      opt.textContent = item.name || item.file;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Ошибка: ' + e.message + ' — можно выбрать локальные файлы шаблонов';
+    $('#templateSelect').appendChild(opt);
+    enableLocalPickerUI();
+  }
+}
 
-    <div class="card">
-      <label for="yamlOutput">Результат</label>
-      <textarea id="yamlOutput" readonly></textarea>
-    </div>
+async function getSelectedTemplateText() {
 
-    <div class="footer">
-      проект сделан на скорую руку при помощи ИИ, все вопросы и ссылка —
-      <a href="https://github.com/mozaroc/clash-convertor-by-ai" target="_blank">GitHub</a>
-      <br><br>
-      Нет WARP и переключателей — только dropdown шаблонов, proxies из ссылок и/или proxy-providers из подписок.
-    </div>
-  </main>
+  const value = $('#templateSelect').value;
+  if (!value) throw new Error('Не выбран шаблон');
+  if (value.startsWith('local:')) {
+    const label = value.slice('local:'.length);
+    const f = LOCAL_TEMPLATES.get(label);
+    if (!f) throw new Error('Локальный файл не найден в списке');
+    return await readFileAsText(f);
+  }
+  const resp = await fetch('./templates/' + value + '?t=' + Date.now());
+  if (!resp.ok) throw new Error('Не удалось загрузить шаблон: ' + value);
+  return await resp.text();
+}
 
-  <script src="./script.js"></script>
-</body>
-</html>
+// ---------- Local file fallback (for file://) ----------
+const templateFilesInput = $('#templateFiles');
+const pickLocalBtn = $('#pickLocalTemplates');
+let LOCAL_TEMPLATES = new Map(); // key: label, value: File
+
+function enableLocalPickerUI() {
+  pickLocalBtn.classList.remove('hidden');
+  pickLocalBtn.addEventListener('click', () => templateFilesInput.click());
+  templateFilesInput.addEventListener('change', handleLocalTemplatesChosen, { once: false });
+}
+
+async function handleLocalTemplatesChosen(ev) {
+  LOCAL_TEMPLATES.clear();
+  const files = Array.from(ev.target.files || [])
+    .filter(f => /\.(ya?ml)$/i.test(f.name));
+  const select = $('#templateSelect');
+  select.innerHTML = '';
+  for (const f of files) {
+    const label = f.name;
+    LOCAL_TEMPLATES.set(label, f);
+    const opt = document.createElement('option');
+    opt.value = 'local:' + label;
+    opt.textContent = label + ' (локальный)';
+    select.appendChild(opt);
+  }
+  if (files.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = ''; opt.textContent = 'Не выбраны локальные шаблоны';
+    select.appendChild(opt);
+  }
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
+
+// ---------- Convert links → proxies ----------
+$('#convertBtn')?.addEventListener('click', async () => {
+  try {
+    const input = $('#yamlInput').value.trim();
+    if (!input) {
+      showError('Введите ссылку(и) для конвертации');
+      return;
+    }
+    const lines = input.split('\n').map(s => s.trim()).filter(Boolean);
+    const proxies = [];
+    for (const line of lines) {
+      if (line.startsWith('vless://')) proxies.push(parseVlessUri(line));
+      else if (line.startsWith('vmess://')) proxies.push(parseVmessUri(line));
+      else if (line.startsWith('ss://')) proxies.push(parseShadowsocksUri(line));
+      else if (line.startsWith('trojan://')) proxies.push(parseTrojanUri(line));
+      else if (line.startsWith('hysteria2://') || line.startsWith('hy2://')) proxies.push(parseHysteria2Uri(line));
+      else throw new Error('Неподдерживаемая ссылка: ' + line);
+    }
+    const proxiesYaml = buildProxiesYaml(proxies);
+    const template = await getBaseConfigText();
+    const merged = mergeTemplateWithProxies(template, proxiesYaml);
+    $('#yamlOutput').value = merged;
+    setupDownloadAndCopy();
+  } catch (e) {
+    showError(e.message || String(e));
+  }
+});
+
+// ---------- Add proxy-providers from subscriptions ----------
+$('#addProvidersBtn')?.addEventListener('click', async () => {
+  try {
+    const input = $('#subsInput').value.trim();
+    if (!input) { showError('Вставьте хотя бы один URL подписки'); return; }
+    const urls = input.split('\n').map(s => s.trim()).filter(Boolean);
+    const interval = parseInt($('#subsInterval').value.trim() || '3600', 10) || 3600;
+    const health = $('#subsHealth').value.trim() || 'http://www.gstatic.com/generate_204';
+    const providersYaml = buildProxyProvidersYaml(urls, interval, health);
+    const template = await getBaseConfigText();
+    const merged = mergeTemplateWithProviders(template, providersYaml);
+    $('#yamlOutput').value = merged;
+    setupDownloadAndCopy();
+  } catch (e) {
+    showError(e.message || String(e));
+  }
+});
+
+document.addEventListener('DOMContentLoaded', loadTemplatesList);
+$('#copyBtn')?.addEventListener('click', copyToClipboard);
+$('#downloadBtn')?.addEventListener('click', downloadConfig);
+$('#reloadTemplates')?.addEventListener('click', loadTemplatesList);
+
+// ---------- Merge logic ----------
+function mergeTemplateWithProxies(templateText, proxiesYaml) {
+  const sections = ['proxy-providers:', 'proxy-groups:', 'rule-providers:', 'rules:', 'sniffer:', 'dns:', 'tun:'];
+  const proxiesIdx = templateText.indexOf('proxies:');
+  if (proxiesIdx !== -1) {
+    let end = templateText.length;
+    for (const s of sections) {
+      const i = templateText.indexOf(s, proxiesIdx + 1);
+      if (i !== -1 && i < end) end = i;
+    }
+    const before = templateText.slice(0, proxiesIdx).trimEnd();
+    const after = templateText.slice(end).trimStart();
+    return [before, proxiesYaml, after].filter(Boolean).join('\n\n') + '\n';
+  }
+  let insertAt = -1;
+  for (const s of ['proxy-groups:', 'proxy-providers:', 'rule-providers:', 'rules:', 'sniffer:', 'dns:', 'tun:']) {
+    const i = templateText.indexOf(s);
+    if (i !== -1) { insertAt = i; break; }
+  }
+  if (insertAt !== -1) {
+    const before = templateText.slice(0, insertAt).trimEnd();
+    const after = templateText.slice(insertAt).trimStart();
+    return [before, proxiesYaml, after].filter(Boolean).join('\n\n') + '\n';
+  }
+  return (templateText.trimEnd() + '\n\n' + proxiesYaml + '\n');
+}
+
+function mergeTemplateWithProviders(templateText, providersYaml) {
+  const sections = ['proxies:', 'proxy-groups:', 'rule-providers:', 'rules:', 'sniffer:', 'dns:', 'tun:'];
+  const key = 'proxy-providers:';
+  const idx = templateText.indexOf(key);
+  if (idx !== -1) {
+    let end = templateText.length;
+    for (const s of sections) {
+      const i = templateText.indexOf(s, idx + 1);
+      if (i !== -1 && i < end) end = i;
+    }
+    const before = templateText.slice(0, idx).trimEnd();
+    const after = templateText.slice(end).trimStart();
+    return [before, providersYaml, after].filter(Boolean).join('\n\n') + '\n';
+  }
+  const pgIdx = templateText.indexOf('proxy-groups:');
+  if (pgIdx !== -1) {
+    const before = templateText.slice(0, pgIdx).trimEnd();
+    const after = templateText.slice(pgIdx).trimStart();
+    return [before, providersYaml, after].filter(Boolean).join('\n\n') + '\n';
+  }
+  return (templateText.trimEnd() + '\n\n' + providersYaml + '\n');
+}
+
+// ---------- YAML builders ----------
+function buildProxiesYaml(proxies) {
+  let yaml = 'proxies:';
+  for (const p of proxies) yaml += '\n' + buildSingleProxyYaml(p);
+  return yaml;
+}
+
+function buildProxyProvidersYaml(urls, interval, healthUrl) {
+  let yaml = 'proxy-providers:';
+  for (const url of urls) {
+    const name = providerNameFromUrl(url);
+    yaml += `
+  ${name}:
+    type: http
+    url: '${url}'
+    interval: ${interval}
+    path: ./providers/${name}.yaml
+    health-check:
+      enable: true
+      lazy: true
+      url: '${healthUrl}'
+      interval: 600`;
+  }
+  return yaml;
+}
+
+function providerNameFromUrl(url) {
+  try {
+    const u = new URL(url);
+    const hostPart = u.hostname.replace(/\./g, '-');
+    let hash = 0;
+    for (let i = 0; i < url.length; i++) {
+      hash = ((hash << 5) - hash) + url.charCodeAt(i);
+      hash |= 0;
+    }
+    const suffix = Math.abs(hash).toString(36).slice(0,5);
+    return `${hostPart}-${suffix}`;
+  } catch { return 'provider-' + Math.random().toString(36).slice(2,7); }
+}
+
+// ---------- Proxy YAML entries ----------
+function buildSingleProxyYaml(p) {
+  switch (p.type) {
+    case 'vless': return asBlock(`- name: "${safe(p.name)}"
+  type: vless
+  server: '${p.server}'
+  port: ${p.port}
+  uuid: '${p.uuid}'` + 
+  (p.tls ? `
+  tls: true` : '') + 
+  (p.sni ? `
+  servername: '${p.sni}'` : '') + 
+  (p.flow ? `
+  flow: '${p.flow}'` : '') + 
+  (p['skip-cert-verify'] !== undefined ? `
+  skip-cert-verify: ${p['skip-cert-verify']}` : '') + 
+  (p['client-fingerprint'] ? `
+  client-fingerprint: '${p['client-fingerprint']}'` : '') + 
+  (p.alpn?.length ? `
+  alpn:${p.alpn.map(a => `\n    - '${a}'`).join('')}` : '') + 
+  (p.network ? `
+  network: '${p.network}'` : '') + 
+  (p['reality-opts'] && (p['reality-opts']['public-key'] || p['reality-opts']['short-id']) ? `
+  reality-opts:${p['reality-opts']['public-key'] ? `
+    public-key: '${p['reality-opts']['public-key']}'` : ''}${p['reality-opts']['short-id'] ? `
+    short-id: '${p['reality-opts']['short-id']}'` : ''}` : '') + 
+  (p.network === 'ws' && p['ws-opts'] ? buildWsOpts(p['ws-opts']) : '') + 
+  (p.network === 'grpc' && p['grpc-opts']?.['grpc-service-name'] ? `
+  grpc-opts:
+    grpc-service-name: '${p['grpc-opts']['grpc-service-name']}'` : ''));
+    case 'vmess': return asBlock(`- name: "${safe(p.name)}"
+  type: vmess
+  server: '${p.server}'
+  port: ${p.port}
+  uuid: '${p.uuid}'
+  udp: true
+  alterId: ${p.alterId || 0}
+  cipher: '${p.cipher || "auto"}'` + 
+  (p.tls ? `
+  tls: true` : '') +
+  (p.servername ? `
+  servername: '${p.servername}'` : '') +
+  (p["skip-cert-verify"] !== undefined ? `
+  skip-cert-verify: ${p["skip-cert-verify"]}` : '') +
+  (p.network ? `
+  network: '${p.network}'` : '') +
+  (p.network === 'ws' && p['ws-opts'] ? buildWsOpts(p['ws-opts']) : '') +
+  (p.network === 'grpc' && p['grpc-opts']?.['grpc-service-name'] ? `
+  grpc-opts:
+    grpc-service-name: '${p['grpc-opts']['grpc-service-name']}'` : ''));
+    case 'ss': return asBlock(`- name: "${safe(p.name)}"
+  type: ss
+  server: '${p.server}'
+  port: ${p.port}
+  cipher: '${p.cipher}'
+  password: '${p.password}'
+  udp: true` + (p.plugin ? `
+  plugin: '${p.plugin}'` : '') + buildPluginOpts(p['plugin-opts']));
+    case 'trojan': return asBlock(`- name: "${safe(p.name)}"
+  type: trojan
+  server: '${p.server}'
+  port: ${p.port}
+  password: '${p.password}'
+  udp: true
+  tls: true` + 
+  (p.sni ? `
+  servername: '${p.sni}'` : '') + 
+  (p["skip-cert-verify"] !== undefined ? `
+  skip-cert-verify: ${p["skip-cert-verify"]}` : '') + 
+  (p["client-fingerprint"] ? `
+  client-fingerprint: '${p["client-fingerprint"]}'` : '') + 
+  (p.alpn?.length ? `
+  alpn:${p.alpn.map(a => `\n    - '${a}'`).join('')}` : '') + 
+  (p.network && p.network !== 'tcp' ? `
+  network: '${p.network}'` : '') + 
+  (p.network === 'ws' && p['ws-opts'] ? buildWsOpts(p['ws-opts']) : '') + 
+  (p.network === 'grpc' && p['grpc-opts']?.['grpc-service-name'] ? `
+  grpc-opts:
+    grpc-service-name: '${p['grpc-opts']['grpc-service-name']}'` : ''));
+    case 'hysteria2': return asBlock(`- name: "${safe(p.name)}"
+  type: hysteria2
+  server: '${p.server}'
+  port: ${p.port}
+  password: '${p.password}'` + 
+  (p.sni ? `
+  sni: '${p.sni}'` : '') + 
+  (p.obfs ? `
+  obfs: '${p.obfs}'` : '') + 
+  (p["obfs-password"] ? `
+  obfs-password: '${p["obfs-password"]}'` : '') + `
+  skip-cert-verify: ${p["skip-cert-verify"] || false}
+  tfo: ${p.tfo || false}` + 
+  (p.fingerprint ? `
+  fingerprint: '${p.fingerprint}'` : ''));
+    default: throw new Error('Unknown proxy type: ' + p.type);
+  }
+}
+
+function buildWsOpts(ws) {
+  let out = '\n  ws-opts:';
+  if (ws.path) out += `\n    path: '${ws.path}'`;
+  if (ws.headers && Object.keys(ws.headers).length > 0) {
+    out += '\n    headers:';
+    for (const [k, v] of Object.entries(ws.headers)) out += `\n      ${k}: '${v}'`;
+  }
+  if (ws["v2ray-http-upgrade"]) out += '\n    v2ray-http-upgrade: true';
+  if (ws["v2ray-http-upgrade-fast-open"]) out += '\n    v2ray-http-upgrade-fast-open: true';
+  return out;
+}
+
+function buildPluginOpts(opts) {
+  if (!opts) return '';
+  let out = '\n  plugin-opts:';
+  for (const [k, v] of Object.entries(opts)) {
+    if (typeof v === 'boolean') out += `\n    ${k}: ${v}`;
+    else out += `\n    ${k}: '${v}'`;
+  }
+  return out;
+}
+
+function asBlock(s) { return s; }
+function safe(s) { return String(s || '').replace(/'/g, "''"); }
+
+// ---------- Parsers ----------
+function parseHysteria2Uri(line) {
+  const match = line.match(/(?:hysteria2|hy2):\/\/([^@]+)@([^:]+):(\d+)(?:\/?\?([^#]*))?(?:#(.*))?/);
+  if (!match) throw new Error('Invalid Hysteria2 URI format');
+  const [_, password, server, portStr, paramsStr = "", name = ""] = match;
+  const port = parseInt(portStr, 10);
+  const decodedName = decodeURIComponent(name).trim() || `Hysteria2 ${server}:${port}`;
+  const proxy = { type: "hysteria2", name: decodedName, server, port, password: decodeURIComponent(password),
+    sni: undefined, obfs: undefined, "obfs-password": undefined, "skip-cert-verify": false, fingerprint: undefined, tfo: false };
+  const params = new URLSearchParams(paramsStr || "");
+  if (params.has('obfs')) {
+    proxy.obfs = params.get('obfs');
+    if (proxy.obfs === 'none') proxy.obfs = undefined;
+    else if (params.has('obfs-password')) proxy["obfs-password"] = params.get('obfs-password');
+  }
+  proxy.sni = params.get('sni') || params.get('peer');
+  proxy["skip-cert-verify"] = params.has('insecure') && /(TRUE)|1/i.test(params.get('insecure'));
+  proxy.fingerprint = params.get('fp') || params.get('fingerprint') || params.get('pinSHA256');
+  proxy.tfo = params.has('tfo') && /(TRUE)|1/i.test(params.get('tfo'));
+  return proxy;
+}
+
+function parseVlessUri(line) {
+  line = line.split('vless://')[1];
+  let isShadowrocket;
+  let parsed = /^(.*?)@(.*?):(\d+)\/?(\?(.*?))?(?:#(.*?))?$/.exec(line);
+  if (!parsed) {
+    let [_, base64, other] = /^(.*?)(\?.*?$)/.exec(line);
+    line = `${atob(base64)}${other}`;
+    parsed = /^(.*?)@(.*?):(\d+)\/?(\?(.*?))?(?:#(.*?))?$/.exec(line);
+    isShadowrocket = true;
+  }
+  let [__, uuid, server, portStr, ___, addons = "", name] = parsed;
+  if (isShadowrocket) uuid = uuid.replace(/^.*?:/g, "");
+  const port = parseInt(portStr, 10);
+  uuid = decodeURIComponent(uuid);
+  name = decodeURIComponent(name || '').trim();
+  const proxy = { type: "vless", name: name || `VLESS ${server}:${port}`, server, port, uuid, tls: false, network: "tcp",
+    alpn: [], "ws-opts": {"v2ray-http-upgrade": false, "v2ray-http-upgrade-fast-open": false}, "http-opts": {},
+    "grpc-opts": {}, "reality-opts": {}, "client-fingerprint": undefined, sni: undefined };
+  const params = {};
+  if (addons) for (const addon of addons.split('&')) {
+    const [key, valueRaw] = addon.split('=');
+    const value = decodeURIComponent(valueRaw || ''); params[key] = value;
+  }
+  proxy.tls = (params.security && params.security !== 'none') || undefined;
+  if (isShadowrocket && /TRUE|1/i.test(params.tls)) { proxy.tls = true; params.security = params.security || "reality"; }
+  proxy.sni = params.sni || params.peer;
+  proxy.flow = params.flow ? 'xtls-rprx-vision' : undefined;
+  proxy['skip-cert-verify'] = /(TRUE)|1/i.test(params.allowInsecure || '');
+  proxy['client-fingerprint'] = params.fp;
+  if (params.alpn) proxy.alpn = params.alpn.replace(/%2F/g, '/').split(',');
+  if (params.security === "reality") {
+    if (params.pbk) proxy['reality-opts']['public-key'] = params.pbk;
+    if (params.sid) proxy['reality-opts']['short-id'] = params.sid;
+  }
+  if (params.type === 'httpupgrade') {
+    proxy.network = 'ws';
+    proxy['ws-opts']['v2ray-http-upgrade'] = true;
+    proxy['ws-opts']['v2ray-http-upgrade-fast-open'] = true;
+  } else {
+    proxy.network = params.type || 'tcp';
+    if (!['tcp','ws','http','grpc','h2'].includes(proxy.network)) proxy.network = 'tcp';
+  }
+  switch (proxy.network) {
+    case 'ws':
+      if (params.path) proxy['ws-opts'].path = decodeURIComponent(params.path);
+      if (params.host || params.obfsParam) {
+        const host = params.host || params.obfsParam;
+        try { const parsedHeaders = JSON.parse(host); if (Object.keys(parsedHeaders).length) proxy['ws-opts'].headers = parsedHeaders; }
+        catch { if (host) { proxy['ws-opts'].headers = proxy['ws-opts'].headers || {}; proxy['ws-opts'].headers.Host = host; } }
+      }
+      if (params.eh && params.eh.includes(':')) {
+        const [headerName, headerValue] = params.eh.split(':').map(s => s.trim());
+        if (headerName && headerValue) { proxy['ws-opts'].headers = proxy['ws-opts'].headers || {}; proxy['ws-opts'].headers[headerName] = headerValue; }
+      }
+      break;
+    case 'grpc':
+      proxy['grpc-opts'] = {};
+      if (params.serviceName) proxy['grpc-opts']['grpc-service-name'] = decodeURIComponent(params.serviceName);
+      break;
+    case 'http':
+      proxy['http-opts'] = { headers: {} };
+      if (params.path) proxy['http-opts'].path = decodeURIComponent(params.path);
+      if (params.host || params.obfsParam) {
+        const host = params.host || params.obfsParam;
+        try { proxy['http-opts'].headers = JSON.parse(host); }
+        catch { if (host) { proxy['http-opts'].headers.Host = host; } }
+      }
+      break;
+  }
+  return proxy;
+}
+
+function parseVmessUri(line) {
+  line = line.split('vmess://')[1];
+  let content = atob(line);
+  let params;
+  try { params = JSON.parse(content); }
+  catch {
+    const match = /(^[^?]+?)\/?\?(.*)$/.exec(line);
+    if (match) {
+      let [_, base64Line, qs] = match;
+      content = atob(base64Line); params = {};
+      for (const addon of qs.split('&')) {
+        const [key, valueRaw] = addon.split('=');
+        params[key] = decodeURIComponent(valueRaw);
+      }
+      const contentMatch = /(^[^:]+?):([^:]+?)@(.*):(\d+)$/.exec(content);
+      if (contentMatch) {
+        let [__, cipher, uuid, server, port] = contentMatch;
+        params.scy = cipher; params.id = uuid; params.port = port; params.add = server;
+      }
+    } else throw new Error('Неверный формат VMess ссылки');
+  }
+  const server = params.add || params.address || params.host;
+  const port = parseInt(params.port, 10);
+  const name = params.ps || params.remarks || params.remark || `VMess ${server}:${port}`;
+  const proxy = { type: "vmess", name, server, port, uuid: params.id, alterId: parseInt(params.aid || params.alterId || 0, 10),
+    cipher: params.scy || "auto", tls: params.tls === "tls" || params.tls === "1" || params.tls === 1,
+    "skip-cert-verify": params.allowInsecure === "1" || params.allowInsecure === "true",
+    network: params.net || "tcp", "ws-opts": {"v2ray-http-upgrade": false, "v2ray-http-upgrade-fast-open": false},
+    "http-opts": {}, "grpc-opts": {} };
+  if (params.sni) proxy.servername = params.sni;
+  if (params.net === "httpupgrade") {
+    proxy.network = "ws";
+    proxy["ws-opts"]["v2ray-http-upgrade"] = true;
+    proxy["ws-opts"]["v2ray-http-upgrade-fast-open"] = true;
+  } else if (proxy.network === "ws") {
+    proxy["ws-opts"].path = params.path || "/";
+    proxy["ws-opts"].headers = {};
+    if (params.host) {
+      try { proxy["ws-opts"].headers = JSON.parse(params.host); }
+      catch { proxy["ws-opts"].headers.Host = params.host; }
+    }
+  } else if (proxy.network === "http") {
+    proxy["http-opts"] = { path: params.path ? [params.path] : ["/"], headers: { Host: params.host ? [params.host] : [] } };
+  } else if (proxy.network === "grpc") {
+    proxy["grpc-opts"] = { "grpc-service-name": params.path || "" };
+  }
+  return proxy;
+}
+
+function parseShadowsocksUri(line) {
+  line = line.split('ss://')[1];
+  let [userinfoAndMaybeServer, maybeAnchor] = line.split('#');
+  let userinfo, serverInfo;
+  if (userinfoAndMaybeServer.includes('@')) {
+    [userinfo, serverInfo] = userinfoAndMaybeServer.split('@');
+  } else {
+    userinfo = userinfoAndMaybeServer;
+    serverInfo = '';
+  }
+  try { userinfo = atob(userinfo); } catch {}
+  let [method, password] = (userinfo || '').split(':');
+  let [server, port] = (serverInfo || '').split(':');
+  const portNum = parseInt(port || '0', 10);
+  const name = decodeURIComponent(maybeAnchor || (server ? `Shadowsocks ${server}:${portNum}` : 'Shadowsocks'));
+  const proxy = { type: "ss", name, server, port: portNum, cipher: method, password };
+  return proxy;
+}
+
+function parseTrojanUri(line) {
+  line = line.split('trojan://')[1];
+  let m = /^(.*?)@(.*?)(?::(\d+))?(?:\/?\?(.*?))?(?:#(.*))?$/.exec(line);
+  if (!m) throw new Error('Неверный формат Trojan ссылки');
+  let [, password, server, port, qs, name] = m;
+  const portNum = parseInt(port || '443', 10);
+  const proxy = { type: "trojan", name: decodeURIComponent(name || `Trojan ${server}:${portNum}`), server, port: portNum, password: decodeURIComponent(password),
+    "skip-cert-verify": false, sni: "", alpn: [], network: "tcp", "grpc-opts": {}, "ws-opts": { "v2ray-http-upgrade": false, "v2ray-http-upgrade-fast-open": false } };
+  if (qs) {
+    for (const part of qs.split('&')) {
+      const [k, vRaw] = part.split('=');
+      const v = decodeURIComponent(vRaw || '');
+      switch (k) {
+        case 'allowInsecure': case 'allow_insecure': proxy["skip-cert-verify"] = v === '1' || v === 'true'; break;
+        case 'sni': case 'peer': proxy.sni = v; break;
+        case 'type': proxy.network = (v === 'httpupgrade') ? 'ws' : v; break;
+        case 'host': if (proxy.network === 'ws') { proxy["ws-opts"].headers = proxy["ws-opts"].headers || {}; proxy["ws-opts"].headers.Host = v; } break;
+        case 'path': if (proxy.network === 'ws') { proxy["ws-opts"].path = v; } break;
+        case 'alpn': proxy.alpn = v.split(','); break;
+        case 'fp': case 'fingerprint': proxy["client-fingerprint"] = v; break;
+      }
+    }
+  }
+  return proxy;
+}
+
+// ---------- Copy & Download ----------
+function setupDownloadAndCopy() { $('#downloadBtn').classList.remove('hidden'); }
+function downloadConfig() {
+  const config = $('#yamlOutput').value;
+  const blob = new Blob([config], { type: 'text/yaml; charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'mihomo-config.yaml';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function copyToClipboard() {
+  const text = $('#yamlOutput').value;
+  const ta = document.createElement('textarea'); ta.value = text;
+  document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+  const btn = $('#copyBtn'); const t = btn.textContent; btn.textContent = 'Скопировано!'; setTimeout(()=>btn.textContent=t, 1500);
+}
+function showError(message) { alert(message); }
+
+// ---------- Choose base config: current output if present, else selected template ----------
+async function getBaseConfigText() {
+  const current = (document.querySelector('#yamlOutput')?.value || '').trim();
+  if (current) return current;
+  return await getSelectedTemplateText();
+}
+
+// ---------- Apply both: proxies + providers ----------
+document.querySelector('#applyBothBtn')?.addEventListener('click', async () => {
+  try {
+    const base = await getBaseConfigText();
+
+    // Build proxies if any
+    const lines = (document.querySelector('#yamlInput')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    let merged = base;
+    if (lines.length) {
+      const proxies = [];
+      for (const line of lines) {
+        if (line.startsWith('vless://')) proxies.push(parseVlessUri(line));
+        else if (line.startsWith('vmess://')) proxies.push(parseVmessUri(line));
+        else if (line.startsWith('ss://')) proxies.push(parseShadowsocksUri(line));
+        else if (line.startsWith('trojan://')) proxies.push(parseTrojanUri(line));
+        else if (line.startsWith('hysteria2://') || line.startsWith('hy2://')) proxies.push(parseHysteria2Uri(line));
+        else throw new Error('Неподдерживаемая ссылка: ' + line);
+      }
+      const proxiesYaml = buildProxiesYaml(proxies);
+      merged = mergeTemplateWithProxies(merged, proxiesYaml);
+    }
+
+    // Build providers if any
+    const subsInput = (document.querySelector('#subsInput')?.value || '').trim();
+    if (subsInput) {
+      const urls = subsInput.split('\n').map(s => s.trim()).filter(Boolean);
+      const interval = parseInt(document.querySelector('#subsInterval').value.trim() || '3600', 10) || 3600;
+      const health = document.querySelector('#subsHealth').value.trim() || 'http://www.gstatic.com/generate_204';
+      const providersYaml = buildProxyProvidersYaml(urls, interval, health);
+      merged = mergeTemplateWithProviders(merged, providersYaml);
+    }
+
+    document.querySelector('#yamlOutput').value = merged;
+    setupDownloadAndCopy();
+  } catch (e) {
+    showError(e.message || String(e));
+  }
+});
