@@ -1,0 +1,246 @@
+log-level: silent # уровень предупреждений в журнале событий
+tproxy-port: 7894 # порт прозрачного прокси
+external-controller: 0.0.0.0:9090 # адрес Dashboard панели Clash
+external-ui: ./zash
+external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip"
+
+mixed-port: 7890
+allow-lan: true
+tcp-concurrent: true
+enable-process: true
+find-process-mode: always
+mode: rule
+ipv6: false
+keep-alive-interval: 30
+unified-delay: true
+profile:
+  store-selected: true
+  store-fake-ip: true
+  tracing: false
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  sniff:
+    HTTP:
+      ports:
+        - 80
+        - 8080-8880
+      override-destination: true
+    TLS:
+      ports:
+        - 443
+        - 8443
+
+#  skip-src-address:
+#    - 192.168.1.1/32 # если нужно исключить конкретное устройство в вашей сети, пропишите его адрес с /32 на конце здесь
+#  skip-dst-address:
+#    - 192.168.1.1/32 # если нужно исключить конкретное устройство в вашей сети, пропишите его адрес с /32 на конце здесь
+
+dns:
+  enable: true
+  prefer-h3: true
+  use-hosts: true
+  use-system-hosts: true
+  listen: 127.0.0.1:6868
+  ipv6: false
+  enhanced-mode: redir-host
+  default-nameserver:
+    - tls://77.88.8.8#DIRECT # Yandex DNS over TLS
+    - 195.208.4.1#DIRECT # НСДИ
+    - system
+  proxy-server-nameserver:
+    - tls://77.88.8.8#DIRECT # Yandex DNS over TLS
+    - 195.208.4.1#DIRECT # НСДИ
+    - system
+  direct-nameserver:
+    - tls://77.88.8.8#DIRECT # Yandex DNS over TLS
+    - 195.208.4.1#DIRECT # НСДИ
+    - system
+  nameserver:
+    - https://cloudflare-dns.com/dns-query#🌍 VPN
+    - https://cloudflare-dns.com/dns-query
+
+proxies:
+
+proxy-groups:
+  - name: 🌍 VPN
+    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Hijacking.png
+    type: select
+    include-all: true
+    proxies:
+      - ⚡️ AUTO
+      # LEAVE THIS LINE!
+  - name: ▶️ YouTube
+    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/YouTube.png
+    type: select
+    include-all: true
+    proxies:
+      - ⚡️ AUTO
+      # LEAVE THIS LINE!
+  - name: ⚡️ AUTO
+    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Auto.png
+    type: url-test
+    url: https://captive.apple.com/generate_204
+    hidden: true
+    interval: 300
+    include-all: true
+    proxies:
+      # LEAVE THIS LINE!
+  - name: 🔓 NO VPN
+    icon: https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Blackhole.png
+    type: select
+    hidden: true
+    proxies:
+      - DIRECT
+
+rule-providers:
+  ru-inline-banned:
+    type: http
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/inline/ru-inline-banned.yaml
+    interval: 86400
+    behavior: classical
+    format: yaml
+    path: ./rule-sets/ru-inline-banned.yaml
+  ru-inline:
+    type: http
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/inline/ru-inline.yaml
+    interval: 86400
+    behavior: classical
+    format: yaml
+    path: ./rule-sets/ru-inline.yaml
+  ru-app-list:
+    type: http
+    behavior: classical
+    format: yaml
+    url: https://github.com/legiz-ru/mihomo-rule-sets/blob/main/other/ru-app-list.yaml
+    path: ./rule-sets/ru-app-list.yaml
+    interval: 86400
+  games-direct:
+    type: http
+    behavior: classical
+    format: yaml
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/games-direct.yaml
+    path: ./rule-sets/games-direct.yaml
+    interval: 86400
+  torrent-trackers:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/torrent-trackers.mrs
+    path: ./rule-sets/torrent-trackers.mrs
+    interval: 86400
+  torrent-clients:
+    type: http
+    behavior: classical
+    format: yaml
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/torrent-clients.yaml
+    path: ./rule-sets/torrent-clients.yaml
+    interval: 86400
+  geosite-ru:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/category-ru.mrs
+    path: ./geosite-ru.mrs
+    interval: 86400
+  xiaomi:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/xiaomi.mrs
+    path: ./rule-sets/xiaomi.mrs
+    interval: 86400
+  blender:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/blender.mrs
+    path: ./rule-sets/blender.mrs
+    interval: 86400
+  drweb:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/drweb.mrs
+    path: ./rule-sets/drweb.mrs
+    interval: 86400
+  debian:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/debian.mrs
+    path: ./rule-sets/debian.mrs
+    interval: 86400
+  canonical:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/canonical.mrs
+    path: ./rule-sets/canonical.mrs
+    interval: 86400
+  python:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/python.mrs
+    path: ./rule-sets/python.mrs
+    interval: 86400
+  geoip-ru:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/ru.mrs
+    path: ./geoip-ru.mrs
+    interval: 86400
+  geosite-private:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/private.mrs
+    path: ./geosite-private.mrs
+    interval: 86400
+  geoip-private:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/private.mrs
+    path: ./geoip-private.mrs
+    interval: 86400
+  ads:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/category-ads-all.mrs
+    path: ./category-ads-all.mrs
+    interval: 86400
+  youtube:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/youtube.mrs
+    path: ./youtube.mrs
+    interval: 86400
+
+rules:
+  - RULE-SET,ads,REJECT
+  - RULE-SET,youtube,▶️ YouTube
+  - RULE-SET,ru-inline-banned,🌍 VPN
+  - PROCESS-NAME,Discord.exe,🌍 VPN
+  - PROCESS-NAME,discord,🌍 VPN
+  - RULE-SET,geoip-private,🔓 NO VPN,no-resolve
+  - RULE-SET,geosite-private,🔓 NO VPN
+  - RULE-SET,ru-app-list,🔓 NO VPN
+  - RULE-SET,games-direct,🔓 NO VPN
+  - RULE-SET,torrent-clients,🔓 NO VPN
+  - RULE-SET,torrent-trackers,🔓 NO VPN
+  - RULE-SET,ru-inline,🔓 NO VPN
+  - RULE-SET,geosite-ru,🔓 NO VPN
+  - RULE-SET,xiaomi,🔓 NO VPN
+  - RULE-SET,blender,🔓 NO VPN
+  - RULE-SET,drweb,🔓 NO VPN
+  - RULE-SET,debian,🔓 NO VPN
+  - RULE-SET,canonical,🔓 NO VPN
+  - RULE-SET,python,🔓 NO VPN
+  - RULE-SET,geoip-ru,🔓 NO VPN
+  - MATCH,🌍 VPN
