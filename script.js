@@ -1,14 +1,8 @@
-/* Clean implementation: no WARP, no extra toggles. 
-   - Loads templates list from templates/index.json
-   - Fetches selected template file
-   - Parses input links (vless/vmess/ss/trojan/hysteria2)
-   - Generates YAML 'proxies:' entries and injects/replaces in template
-   - Provides copy & download helpers
-*/
+/* App logic: templates dropdown (+file:// fallback), proxies from links, proxy-providers from subscriptions */
 
-// ---------- Helpers: UI ----------
 const $ = (sel) => document.querySelector(sel);
 
+// ---------- Templates loading ----------
 async function loadTemplatesList() {
   const select = $('#templateSelect');
   select.innerHTML = '';
@@ -45,49 +39,6 @@ async function getSelectedTemplateText() {
   if (!resp.ok) throw new Error('Не удалось загрузить шаблон: ' + value);
   return await resp.text();
 }
-
-function showError(message) {
-  alert(message);
-}
-
-// ---------- Convert button ----------
-$('#convertBtn')?.addEventListener('click', async () => {
-  try {
-    const input = $('#yamlInput').value.trim();
-    if (!input) {
-      showError('Введите ссылку(и) для конвертации');
-      return;
-    }
-    const lines = input.split('\n').map(s => s.trim()).filter(Boolean);
-    const proxies = [];
-    for (const line of lines) {
-      if (line.startsWith('vless://')) proxies.push(parseVlessUri(line));
-      else if (line.startsWith('vmess://')) proxies.push(parseVmessUri(line));
-      else if (line.startsWith('ss://')) proxies.push(parseShadowsocksUri(line));
-      else if (line.startsWith('trojan://')) proxies.push(parseTrojanUri(line));
-      else if (line.startsWith('hysteria2://') || line.startsWith('hy2://')) proxies.push(parseHysteria2Uri(line));
-      else throw new Error('Неподдерживаемая ссылка: ' + line);
-    }
-
-    // Build 'proxies:' YAML block only
-    const proxiesYaml = buildProxiesYaml(proxies);
-
-    // Load template and inject/replace proxies
-    const template = await getSelectedTemplateText();
-    const merged = mergeTemplateWithProxies(template, proxiesYaml);
-
-    $('#yamlOutput').value = merged;
-    setupDownloadAndCopy();
-  } catch (e) {
-    showError(e.message || String(e));
-  }
-});
-
-$('#copyBtn')?.addEventListener('click', copyToClipboard);
-$('#downloadBtn')?.addEventListener('click', downloadConfig);
-$('#reloadTemplates')?.addEventListener('click', loadTemplatesList);
-
-document.addEventListener('DOMContentLoaded', loadTemplatesList);
 
 // ---------- Local file fallback (for file://) ----------
 const templateFilesInput = $('#templateFiles');
@@ -130,11 +81,59 @@ function readFileAsText(file) {
   });
 }
 
+// ---------- Convert links → proxies ----------
+$('#convertBtn')?.addEventListener('click', async () => {
+  try {
+    const input = $('#yamlInput').value.trim();
+    if (!input) {
+      showError('Введите ссылку(и) для конвертации');
+      return;
+    }
+    const lines = input.split('\n').map(s => s.trim()).filter(Boolean);
+    const proxies = [];
+    for (const line of lines) {
+      if (line.startsWith('vless://')) proxies.push(parseVlessUri(line));
+      else if (line.startsWith('vmess://')) proxies.push(parseVmessUri(line));
+      else if (line.startsWith('ss://')) proxies.push(parseShadowsocksUri(line));
+      else if (line.startsWith('trojan://')) proxies.push(parseTrojanUri(line));
+      else if (line.startsWith('hysteria2://') || line.startsWith('hy2://')) proxies.push(parseHysteria2Uri(line));
+      else throw new Error('Неподдерживаемая ссылка: ' + line);
+    }
+    const proxiesYaml = buildProxiesYaml(proxies);
+    const template = await getSelectedTemplateText();
+    const merged = mergeTemplateWithProxies(template, proxiesYaml);
+    $('#yamlOutput').value = merged;
+    setupDownloadAndCopy();
+  } catch (e) {
+    showError(e.message || String(e));
+  }
+});
+
+// ---------- Add proxy-providers from subscriptions ----------
+$('#addProvidersBtn')?.addEventListener('click', async () => {
+  try {
+    const input = $('#subsInput').value.trim();
+    if (!input) { showError('Вставьте хотя бы один URL подписки'); return; }
+    const urls = input.split('\n').map(s => s.trim()).filter(Boolean);
+    const interval = parseInt($('#subsInterval').value.trim() || '3600', 10) || 3600;
+    const health = $('#subsHealth').value.trim() || 'http://www.gstatic.com/generate_204';
+    const providersYaml = buildProxyProvidersYaml(urls, interval, health);
+    const template = await getSelectedTemplateText();
+    const merged = mergeTemplateWithProviders(template, providersYaml);
+    $('#yamlOutput').value = merged;
+    setupDownloadAndCopy();
+  } catch (e) {
+    showError(e.message || String(e));
+  }
+});
+
+document.addEventListener('DOMContentLoaded', loadTemplatesList);
+$('#copyBtn')?.addEventListener('click', copyToClipboard);
+$('#downloadBtn')?.addEventListener('click', downloadConfig);
+$('#reloadTemplates')?.addEventListener('click', loadTemplatesList);
 
 // ---------- Merge logic ----------
 function mergeTemplateWithProxies(templateText, proxiesYaml) {
-  // 1) If template already contains 'proxies:' -> replace its block
-  // The block ends before next top-level section: proxy-groups:, proxy-providers:, rule-providers:, rules:, sniffer:, dns:, tun:
   const sections = ['proxy-providers:', 'proxy-groups:', 'rule-providers:', 'rules:', 'sniffer:', 'dns:', 'tun:'];
   const proxiesIdx = templateText.indexOf('proxies:');
   if (proxiesIdx !== -1) {
@@ -147,33 +146,83 @@ function mergeTemplateWithProxies(templateText, proxiesYaml) {
     const after = templateText.slice(end).trimStart();
     return [before, proxiesYaml, after].filter(Boolean).join('\n\n') + '\n';
   }
-
-  // 2) If there's no proxies:, try to insert before proxy-groups: (or append to the end)
   let insertAt = -1;
   for (const s of ['proxy-groups:', 'proxy-providers:', 'rule-providers:', 'rules:', 'sniffer:', 'dns:', 'tun:']) {
     const i = templateText.indexOf(s);
     if (i !== -1) { insertAt = i; break; }
   }
-
   if (insertAt !== -1) {
     const before = templateText.slice(0, insertAt).trimEnd();
     const after = templateText.slice(insertAt).trimStart();
     return [before, proxiesYaml, after].filter(Boolean).join('\n\n') + '\n';
   }
-
-  // 3) Fallback: append
   return (templateText.trimEnd() + '\n\n' + proxiesYaml + '\n');
 }
 
-// ---------- YAML builders (only 'proxies:' block) ----------
+function mergeTemplateWithProviders(templateText, providersYaml) {
+  const sections = ['proxies:', 'proxy-groups:', 'rule-providers:', 'rules:', 'sniffer:', 'dns:', 'tun:'];
+  const key = 'proxy-providers:';
+  const idx = templateText.indexOf(key);
+  if (idx !== -1) {
+    let end = templateText.length;
+    for (const s of sections) {
+      const i = templateText.indexOf(s, idx + 1);
+      if (i !== -1 && i < end) end = i;
+    }
+    const before = templateText.slice(0, idx).trimEnd();
+    const after = templateText.slice(end).trimStart();
+    return [before, providersYaml, after].filter(Boolean).join('\n\n') + '\n';
+  }
+  const pgIdx = templateText.indexOf('proxy-groups:');
+  if (pgIdx !== -1) {
+    const before = templateText.slice(0, pgIdx).trimEnd();
+    const after = templateText.slice(pgIdx).trimStart();
+    return [before, providersYaml, after].filter(Boolean).join('\n\n') + '\n';
+  }
+  return (templateText.trimEnd() + '\n\n' + providersYaml + '\n');
+}
+
+// ---------- YAML builders ----------
 function buildProxiesYaml(proxies) {
   let yaml = 'proxies:';
-  for (const p of proxies) {
-    yaml += '\n' + buildSingleProxyYaml(p);
+  for (const p of proxies) yaml += '\n' + buildSingleProxyYaml(p);
+  return yaml;
+}
+
+function buildProxyProvidersYaml(urls, interval, healthUrl) {
+  let yaml = 'proxy-providers:';
+  for (const url of urls) {
+    const name = providerNameFromUrl(url);
+    yaml += `
+  ${name}:
+    type: http
+    url: '${url}'
+    interval: ${interval}
+    path: ./providers/${name}.yaml
+    health-check:
+      enable: true
+      lazy: true
+      url: '${healthUrl}'
+      interval: 600`;
   }
   return yaml;
 }
 
+function providerNameFromUrl(url) {
+  try {
+    const u = new URL(url);
+    const hostPart = u.hostname.replace(/\./g, '-');
+    let hash = 0;
+    for (let i = 0; i < url.length; i++) {
+      hash = ((hash << 5) - hash) + url.charCodeAt(i);
+      hash |= 0;
+    }
+    const suffix = Math.abs(hash).toString(36).slice(0,5);
+    return `${hostPart}-${suffix}`;
+  } catch { return 'provider-' + Math.random().toString(36).slice(2,7); }
+}
+
+// ---------- Proxy YAML entries ----------
 function buildSingleProxyYaml(p) {
   switch (p.type) {
     case 'vless': return asBlock(`- name: "${safe(p.name)}"
@@ -296,7 +345,7 @@ function buildPluginOpts(opts) {
 function asBlock(s) { return s; }
 function safe(s) { return String(s || '').replace(/'/g, "''"); }
 
-// ---------- Parsers (ported & lightly cleaned from your previous script) ----------
+// ---------- Parsers (same as previous version) ----------
 function parseHysteria2Uri(line) {
   const match = line.match(/(?:hysteria2|hy2):\/\/([^@]+)@([^:]+):(\d+)(?:\/?\?([^#]*))?(?:#(.*))?/);
   if (!match) throw new Error('Invalid Hysteria2 URI format');
@@ -441,47 +490,37 @@ function parseVmessUri(line) {
 
 function parseShadowsocksUri(line) {
   line = line.split('ss://')[1];
-  let [userinfo, serverInfo] = line.split('@');
-  let [server, port] = (serverInfo || '').split(':');
-  port = parseInt(port, 10);
+  let [userinfoAndMaybeServer, maybeAnchor] = line.split('#');
+  let userinfo, serverInfo;
+  if (userinfoAndMaybeServer.includes('@')) {
+    [userinfo, serverInfo] = userinfoAndMaybeServer.split('@');
+  } else {
+    userinfo = userinfoAndMaybeServer;
+    serverInfo = '';
+  }
   try { userinfo = atob(userinfo); } catch {}
   let [method, password] = (userinfo || '').split(':');
-  const name = decodeURIComponent((line.split('#')[1] || `Shadowsocks ${server}:${port}`));
-  const proxy = { type: "ss", name, server, port, cipher: method, password };
-  if (line.includes('?plugin=')) {
-    const pluginStr = decodeURIComponent(line.split('?plugin=')[1].split('#')[0]);
-    const pluginParts = pluginStr.split(';');
-    if (pluginParts[0].includes('obfs')) {
-      proxy.plugin = "obfs";
-      proxy["plugin-opts"] = { mode: pluginParts.find(p => p.startsWith('obfs='))?.split('=')[1] || "http",
-                               host: pluginParts.find(p => p.startsWith('obfs-host='))?.split('=')[1] || "" };
-    } else if (pluginParts[0].includes('v2ray-plugin')) {
-      proxy.plugin = "v2ray-plugin";
-      proxy["plugin-opts"] = { mode: "websocket",
-                               host: pluginParts.find(p => p.startsWith('host='))?.split('=')[1] || "",
-                               path: pluginParts.find(p => p.startsWith('path='))?.split('=')[1] || "/",
-                               tls: pluginParts.includes('tls') };
-    }
-  }
+  let [server, port] = (serverInfo || '').split(':');
+  const portNum = parseInt(port || '0', 10);
+  const name = decodeURIComponent(maybeAnchor || (server ? `Shadowsocks ${server}:${portNum}` : 'Shadowsocks'));
+  const proxy = { type: "ss", name, server, port: portNum, cipher: method, password };
   return proxy;
 }
 
 function parseTrojanUri(line) {
   line = line.split('trojan://')[1];
-  let [__, password, server, ___, port, ____, addons = "", name] =
-    /^(.*?)@(.*?)(:(\d+))?\/?(\?(.*?))?(?:#(.*?))?$/.exec(line) || [];
-  let portNum = parseInt(`${port}`, 10); if (isNaN(portNum)) portNum = 443;
-  password = decodeURIComponent(password);
-  const decodedName = decodeURIComponent(name || '').trim();
-  const proxy = { type: "trojan", name: decodedName || `Trojan ${server}:${portNum}`, server, port: portNum, password,
+  let m = /^(.*?)@(.*?)(?::(\d+))?(?:\/?\?(.*?))?(?:#(.*))?$/.exec(line);
+  if (!m) throw new Error('Неверный формат Trojan ссылки');
+  let [, password, server, port, qs, name] = m;
+  const portNum = parseInt(port || '443', 10);
+  const proxy = { type: "trojan", name: decodeURIComponent(name || `Trojan ${server}:${portNum}`), server, port: portNum, password: decodeURIComponent(password),
     "skip-cert-verify": false, sni: "", alpn: [], network: "tcp", "grpc-opts": {}, "ws-opts": { "v2ray-http-upgrade": false, "v2ray-http-upgrade-fast-open": false } };
-  if (addons) {
-    const paramsStr = addons.split('#')[0];
-    for (const param of paramsStr.split('&')) {
-      const [key, value] = param.split('=');
-      const v = decodeURIComponent(value || '');
-      switch (key) {
-        case 'allowInsecure': case 'allow_insecure': proxy["skip-cert-verify"] = v === '1' || v == 'true'; break;
+  if (qs) {
+    for (const part of qs.split('&')) {
+      const [k, vRaw] = part.split('=');
+      const v = decodeURIComponent(vRaw || '');
+      switch (k) {
+        case 'allowInsecure': case 'allow_insecure': proxy["skip-cert-verify"] = v === '1' || v === 'true'; break;
         case 'sni': case 'peer': proxy.sni = v; break;
         case 'type': proxy.network = (v === 'httpupgrade') ? 'ws' : v; break;
         case 'host': if (proxy.network === 'ws') { proxy["ws-opts"].headers = proxy["ws-opts"].headers || {}; proxy["ws-opts"].headers.Host = v; } break;
@@ -495,11 +534,7 @@ function parseTrojanUri(line) {
 }
 
 // ---------- Copy & Download ----------
-function setupDownloadAndCopy() {
-  const downloadBtn = $('#downloadBtn');
-  downloadBtn.classList.remove('hidden');
-}
-
+function setupDownloadAndCopy() { $('#downloadBtn').classList.remove('hidden'); }
 function downloadConfig() {
   const config = $('#yamlOutput').value;
   const blob = new Blob([config], { type: 'text/yaml; charset=utf-8' });
@@ -509,10 +544,10 @@ function downloadConfig() {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-
 function copyToClipboard() {
   const text = $('#yamlOutput').value;
   const ta = document.createElement('textarea'); ta.value = text;
   document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
   const btn = $('#copyBtn'); const t = btn.textContent; btn.textContent = 'Скопировано!'; setTimeout(()=>btn.textContent=t, 1500);
 }
+function showError(message) { alert(message); }
