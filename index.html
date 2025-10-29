@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mihomo: конвертер ссылок → YAML + шаблоны</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
+    header { padding: 24px; background: #11131a; border-bottom: 1px solid #232532; }
+    h1 { margin: 0; font-size: 20px; }
+    main { padding: 24px; max-width: 980px; margin: 0 auto; }
+    .card { background: #151823; border: 1px solid #232532; border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+    label { display: block; font-size: 14px; color: #9aa1b2; margin-bottom: 8px; }
+    select, textarea, input[type="text"] { width: 100%; background: #0f1115; border: 1px solid #2a2e3f; border-radius: 10px; color: #e7e7e7; padding: 10px 12px; }
+    textarea { min-height: 120px; line-height: 1.4; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    button { background: #3b82f6; color: white; border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer; font-weight: 600; }
+    button.secondary { background: #2b2f42; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    .hint { font-size: 12px; color: #9aa1b2; margin-top: 8px; }
+    .footer { font-size: 12px; color: #79809b; margin-top: 24px; }
+    .hidden { display: none; }
+    .inline { display: inline-flex; gap: 8px; align-items: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Конвертер ссылок → YAML для Mihomo (с шаблонами)</h1>
+  </header>
+  <main>
+    <div class="card">
+      <label for="templateSelect">Шаблон конфига</label>
+      <div class="row">
+        <input id="templateFiles" type="file" accept=".yaml,.yml" multiple class="hidden" />
+        <select id="templateSelect"></select>
+        <div class="inline">
+          <button id="reloadTemplates" class="secondary" title="Перечитать templates/index.json">Обновить список</button>
+          <button id="pickLocalTemplates" class="secondary hidden" title="Загрузить .yaml шаблоны с диска">Выбрать файлы шаблонов</button>
+        </div>
+      </div>
+
+    <div class="card">
+      <label for="yamlInput">VLESS / VMESS / SS / TROJAN / HY2 ссылка или несколько ссылок (по одной в строке)</label>
+      <textarea id="yamlInput" placeholder="vless://..., vmess://..., ss://..., trojan://..., hy2://..."></textarea>
+      <div class="actions" style="margin-top:10px;">
+        <button id="convertBtn">Конвертировать</button>
+        <button id="copyBtn" class="secondary">Копировать</button>
+        <button id="downloadBtn" class="secondary hidden">Скачать YAML</button>
+      </div>
+      <div class="hint">Скрипт возьмёт ссылку(и), сконвертирует их в YAML для Mihomo и добавит/заменит раздел <code>proxies:</code> в выбранном шаблоне.</div>
+    </div>
+
+    <div class="card">
+      <label for="yamlOutput">Результат</label>
+      <textarea id="yamlOutput" readonly></textarea>
+    </div>
+
+  </main>
+
+  <script src="./script.js"></script>
+</body>
+</html>
