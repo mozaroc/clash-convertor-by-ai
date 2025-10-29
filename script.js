@@ -27,6 +27,7 @@ async function loadTemplatesList() {
 }
 
 async function getSelectedTemplateText() {
+
   const value = $('#templateSelect').value;
   if (!value) throw new Error('Не выбран шаблон');
   if (value.startsWith('local:')) {
@@ -100,7 +101,7 @@ $('#convertBtn')?.addEventListener('click', async () => {
       else throw new Error('Неподдерживаемая ссылка: ' + line);
     }
     const proxiesYaml = buildProxiesYaml(proxies);
-    const template = await getSelectedTemplateText();
+    const template = await getBaseConfigText();
     const merged = mergeTemplateWithProxies(template, proxiesYaml);
     $('#yamlOutput').value = merged;
     setupDownloadAndCopy();
@@ -118,7 +119,7 @@ $('#addProvidersBtn')?.addEventListener('click', async () => {
     const interval = parseInt($('#subsInterval').value.trim() || '3600', 10) || 3600;
     const health = $('#subsHealth').value.trim() || 'http://www.gstatic.com/generate_204';
     const providersYaml = buildProxyProvidersYaml(urls, interval, health);
-    const template = await getSelectedTemplateText();
+    const template = await getBaseConfigText();
     const merged = mergeTemplateWithProviders(template, providersYaml);
     $('#yamlOutput').value = merged;
     setupDownloadAndCopy();
@@ -345,7 +346,7 @@ function buildPluginOpts(opts) {
 function asBlock(s) { return s; }
 function safe(s) { return String(s || '').replace(/'/g, "''"); }
 
-// ---------- Parsers (same as previous version) ----------
+// ---------- Parsers ----------
 function parseHysteria2Uri(line) {
   const match = line.match(/(?:hysteria2|hy2):\/\/([^@]+)@([^:]+):(\d+)(?:\/?\?([^#]*))?(?:#(.*))?/);
   if (!match) throw new Error('Invalid Hysteria2 URI format');
@@ -551,3 +552,49 @@ function copyToClipboard() {
   const btn = $('#copyBtn'); const t = btn.textContent; btn.textContent = 'Скопировано!'; setTimeout(()=>btn.textContent=t, 1500);
 }
 function showError(message) { alert(message); }
+
+// ---------- Choose base config: current output if present, else selected template ----------
+async function getBaseConfigText() {
+  const current = (document.querySelector('#yamlOutput')?.value || '').trim();
+  if (current) return current;
+  return await getSelectedTemplateText();
+}
+
+// ---------- Apply both: proxies + providers ----------
+document.querySelector('#applyBothBtn')?.addEventListener('click', async () => {
+  try {
+    const base = await getBaseConfigText();
+
+    // Build proxies if any
+    const lines = (document.querySelector('#yamlInput')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    let merged = base;
+    if (lines.length) {
+      const proxies = [];
+      for (const line of lines) {
+        if (line.startsWith('vless://')) proxies.push(parseVlessUri(line));
+        else if (line.startsWith('vmess://')) proxies.push(parseVmessUri(line));
+        else if (line.startsWith('ss://')) proxies.push(parseShadowsocksUri(line));
+        else if (line.startsWith('trojan://')) proxies.push(parseTrojanUri(line));
+        else if (line.startsWith('hysteria2://') || line.startsWith('hy2://')) proxies.push(parseHysteria2Uri(line));
+        else throw new Error('Неподдерживаемая ссылка: ' + line);
+      }
+      const proxiesYaml = buildProxiesYaml(proxies);
+      merged = mergeTemplateWithProxies(merged, proxiesYaml);
+    }
+
+    // Build providers if any
+    const subsInput = (document.querySelector('#subsInput')?.value || '').trim();
+    if (subsInput) {
+      const urls = subsInput.split('\n').map(s => s.trim()).filter(Boolean);
+      const interval = parseInt(document.querySelector('#subsInterval').value.trim() || '3600', 10) || 3600;
+      const health = document.querySelector('#subsHealth').value.trim() || 'http://www.gstatic.com/generate_204';
+      const providersYaml = buildProxyProvidersYaml(urls, interval, health);
+      merged = mergeTemplateWithProviders(merged, providersYaml);
+    }
+
+    document.querySelector('#yamlOutput').value = merged;
+    setupDownloadAndCopy();
+  } catch (e) {
+    showError(e.message || String(e));
+  }
+});
