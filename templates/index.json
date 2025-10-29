@@ -1,5 +1,6 @@
 [
   { "name": "Базовый шаблон", "file": "default-ru.yaml" },
   { "name": "ru bundle by legiz", "file": "ru-bundle-by-legiz.yaml" },
-  { "name": "by Davoyan", "file": "by-Davoyan.yaml" }
+  { "name": "by Davoyan", "file": "by-Davoyan.yaml" },
+  { "name": "Базовый шаблон для роутеров", "file": "default-ru-routers.yaml"}
 ]
