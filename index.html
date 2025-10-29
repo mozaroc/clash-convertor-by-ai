@@ -25,6 +25,7 @@
     .inline { display: inline-flex; gap: 8px; align-items: center; }
     code { background:#10131c; padding:2px 5px; border-radius:6px; }
     @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+    a { color: #93c5fd; }
   </style>
 </head>
 <body>
@@ -72,6 +73,7 @@
       </div>
       <div class="actions" style="margin-top:10px;">
         <button id="addProvidersBtn">Добавить proxy-providers</button>
+        <button id="applyBothBtn" class="secondary">Применить оба (proxies + providers)</button>
       </div>
       <div class="hint">Будет создана секция <code>proxy-providers:</code> с типом <code>http</code> и ссылками на подписки. Mihomo сам будет ходить по этим URL и обновлять список прокси.</div>
     </div>
@@ -81,7 +83,12 @@
       <textarea id="yamlOutput" readonly></textarea>
     </div>
 
-    <div class="footer">Нет WARP и переключателей — только dropdown шаблонов, proxies из ссылок и/или proxy-providers из подписок.</div>
+    <div class="footer">
+      проект сделан на скорую руку при помощи ИИ, все вопросы и ссылка —
+      <a href="https://github.com/mozaroc/clash-convertor-by-ai" target="_blank">GitHub</a>
+      <br><br>
+      Нет WARP и переключателей — только dropdown шаблонов, proxies из ссылок и/или proxy-providers из подписок.
+    </div>
   </main>
 
   <script src="./script.js"></script>
